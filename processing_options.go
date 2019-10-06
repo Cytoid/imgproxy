@@ -133,7 +133,7 @@ type processingOptions struct {
 const (
 	imageURLCtxKey          = ctxKey("imageUrl")
 	processingOptionsCtxKey = ctxKey("processingOptions")
-	urlTokenPlain           = "plain"
+	urlTokenEncoded          = "encoded"
 	maxClientHintDPR        = 8
 
 	msgForbidden  = "Forbidden"
@@ -273,11 +273,11 @@ func decodeURL(parts []string) (string, string, error) {
 		return "", "", errors.New("Image URL is empty")
 	}
 
-	if parts[0] == urlTokenPlain && len(parts) > 1 {
-		return decodePlainURL(parts[1:])
+	if parts[0] == urlTokenEncoded && len(parts) > 1 {
+		return decodeBase64URL(parts[1:])
 	}
 
-	return decodeBase64URL(parts)
+	return decodePlainURL(parts)
 }
 
 func parseDimension(d *int, name, arg string) error {
@@ -891,6 +891,7 @@ func parsePath(ctx context.Context, r *http.Request) (context.Context, error) {
 		if err := validatePath(parts[0], strings.TrimPrefix(path, fmt.Sprintf("/%s", parts[0]))); err != nil {
 			return ctx, newError(403, err.Error(), msgForbidden)
 		}
+		parts = parts[1:]
 	}
 
 	headers := &processingHeaders{
@@ -905,11 +906,11 @@ func parsePath(ctx context.Context, r *http.Request) (context.Context, error) {
 	var err error
 
 	if conf.OnlyPresets {
-		imageURL, po, err = parsePathPresets(parts[1:], headers)
+		imageURL, po, err = parsePathPresets(parts, headers)
 	} else if _, ok := resizeTypes[parts[1]]; ok {
-		imageURL, po, err = parsePathBasic(parts[1:], headers)
+		imageURL, po, err = parsePathBasic(parts, headers)
 	} else {
-		imageURL, po, err = parsePathAdvanced(parts[1:], headers)
+		imageURL, po, err = parsePathAdvanced(parts, headers)
 	}
 
 	if err != nil {

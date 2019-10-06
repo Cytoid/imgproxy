@@ -1,5 +1,5 @@
 FROM golang:1-alpine3.10
-LABEL maintainer="Sergey Alexandrovich <darthsim@gmail.com>"
+LABEL maintainer="Zhixing Zhang <me@neoto.xin>"
 
 ENV GOPATH /go
 ENV PATH /usr/local/go/bin:$PATH
@@ -92,7 +92,7 @@ RUN cd /root \
 # Final image
 
 FROM alpine:3.10
-LABEL maintainer="Sergey Alexandrovich <darthsim@gmail.com>"
+LABEL maintainer="Zhixing Zhang <me@neoto.xin>"
 
 RUN apk --no-cache upgrade \
   && apk add --no-cache \
