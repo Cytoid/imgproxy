@@ -1,5 +1,7 @@
 *.swp
 imgproxy
 tmp/
+builds/
 .tmp/
 .vscode/
+.idea/

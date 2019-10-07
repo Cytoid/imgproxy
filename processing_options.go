@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -210,74 +209,6 @@ func colorFromHex(hexcolor string) (rgbColor, error) {
 	}
 
 	return c, nil
-}
-
-func decodeBase64URL(parts []string) (string, string, error) {
-	var format string
-
-	encoded := strings.Join(parts, "")
-	urlParts := strings.Split(encoded, ".")
-
-	if len(urlParts[0]) == 0 {
-		return "", "", errors.New("Image URL is empty")
-	}
-
-	if len(urlParts) > 2 {
-		return "", "", fmt.Errorf("Multiple formats are specified: %s", encoded)
-	}
-
-	if len(urlParts) == 2 && len(urlParts[1]) > 0 {
-		format = urlParts[1]
-	}
-
-	imageURL, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(urlParts[0], "="))
-	if err != nil {
-		return "", "", fmt.Errorf("Invalid url encoding: %s", encoded)
-	}
-
-	fullURL := fmt.Sprintf("%s%s", conf.BaseURL, string(imageURL))
-
-	return fullURL, format, nil
-}
-
-func decodePlainURL(parts []string) (string, string, error) {
-	var format string
-
-	encoded := strings.Join(parts, "/")
-	urlParts := strings.Split(encoded, "@")
-
-	if len(urlParts[0]) == 0 {
-		return "", "", errors.New("Image URL is empty")
-	}
-
-	if len(urlParts) > 2 {
-		return "", "", fmt.Errorf("Multiple formats are specified: %s", encoded)
-	}
-
-	if len(urlParts) == 2 && len(urlParts[1]) > 0 {
-		format = urlParts[1]
-	}
-
-	unescaped, err := url.PathUnescape(urlParts[0])
-	if err != nil {
-		return "", "", fmt.Errorf("Invalid url encoding: %s", encoded)
-	}
-
-	fullURL := fmt.Sprintf("%s%s", conf.BaseURL, unescaped)
-
-	return fullURL, format, nil
-}
-
-func decodeURL(parts []string) (string, string, error) {
-	if len(parts) == 0 {
-		return "", "", errors.New("Image URL is empty")
-	}
-
-	if parts[0] == urlTokenEncoded && len(parts) > 1 {
-		return decodeBase64URL(parts[1:])
-	}
-
-	return decodePlainURL(parts)
 }
 
 func parseDimension(d *int, name, arg string) error {
@@ -781,118 +712,37 @@ func defaultProcessingOptions(headers *processingHeaders) (*processingOptions, e
 	return po, nil
 }
 
-func parsePathAdvanced(parts []string, headers *processingHeaders) (string, *processingOptions, error) {
-	po, err := defaultProcessingOptions(headers)
-	if err != nil {
-		return "", po, err
-	}
-
-	options, urlParts := parseURLOptions(parts)
-
-	if err = applyProcessingOptions(po, options); err != nil {
-		return "", po, err
-	}
-
-	url, extension, err := decodeURL(urlParts)
-	if err != nil {
-		return "", po, err
-	}
-
-	if len(extension) > 0 {
-		if err = applyFormatOption(po, []string{extension}); err != nil {
-			return "", po, err
-		}
-	}
-
-	return url, po, nil
-}
-
-func parsePathPresets(parts []string, headers *processingHeaders) (string, *processingOptions, error) {
-	po, err := defaultProcessingOptions(headers)
-	if err != nil {
-		return "", po, err
-	}
-
-	presets := strings.Split(parts[0], ":")
-	urlParts := parts[1:]
-
-	if err = applyPresetOption(po, presets); err != nil {
-		return "", nil, err
-	}
-
-	url, extension, err := decodeURL(urlParts)
-	if err != nil {
-		return "", po, err
-	}
-
-	if len(extension) > 0 {
-		if err = applyFormatOption(po, []string{extension}); err != nil {
-			return "", po, err
-		}
-	}
-
-	return url, po, nil
-}
-
-func parsePathBasic(parts []string, headers *processingHeaders) (string, *processingOptions, error) {
-	if len(parts) < 6 {
-		return "", nil, fmt.Errorf("Invalid basic URL format arguments: %s", strings.Join(parts, "/"))
-	}
-
-	po, err := defaultProcessingOptions(headers)
-	if err != nil {
-		return "", po, err
-	}
-
-	po.Resize = resizeTypes[parts[0]]
-
-	if err = applyWidthOption(po, parts[1:2]); err != nil {
-		return "", po, err
-	}
-
-	if err = applyHeightOption(po, parts[2:3]); err != nil {
-		return "", po, err
-	}
-
-	if err = applyGravityOption(po, strings.Split(parts[3], ":")); err != nil {
-		return "", po, err
-	}
-
-	if err = applyEnlargeOption(po, parts[4:5]); err != nil {
-		return "", po, err
-	}
-
-	url, extension, err := decodeURL(parts[5:])
-	if err != nil {
-		return "", po, err
-	}
-
-	if len(extension) > 0 {
-		if err := applyFormatOption(po, []string{extension}); err != nil {
-			return "", po, err
-		}
-	}
-
-	return url, po, nil
-}
-
 func parsePath(ctx context.Context, r *http.Request) (context.Context, error) {
 	path := r.URL.RawPath
 	if len(path) == 0 {
 		path = r.URL.Path
 	}
-	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	path = strings.TrimPrefix(path, "/")
 
-	if len(parts) < 3 {
-		return ctx, newError(404, fmt.Sprintf("Invalid path: %s", path), msgInvalidURL)
-	}
-
-	if !conf.AllowInsecure {
-		if err := validatePath(parts[0], strings.TrimPrefix(path, fmt.Sprintf("/%s", parts[0]))); err != nil {
-			return ctx, newError(403, err.Error(), msgForbidden)
+	{
+		parts := strings.SplitN(path, "/", 2)
+		if parts[0] == urlTokenEncoded {
+			decodedPath, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+			if err != nil {
+				return ctx, newError(404, err.Error(), "Invalid URL Encoding: " + parts[1])
+			}
+			path = string(decodedPath)
+		} else {
+			unescapedPath, err := url.PathUnescape(path)
+			if err != nil {
+				return ctx, newError(404, err.Error(), "Invalid URL Encoding: " + path)
+			}
+			path = unescapedPath
 		}
-		parts = parts[1:]
 	}
+
+	if !strings.Contains(path, ":") {
+		// The URL provided was an absolute URL
+		path = conf.BaseURL + path
+	}
+
+	var po *processingOptions
+	var err error
 
 	headers := &processingHeaders{
 		Accept:        r.Header.Get("Accept"),
@@ -901,23 +751,25 @@ func parsePath(ctx context.Context, r *http.Request) (context.Context, error) {
 		DPR:           r.Header.Get("DPR"),
 	}
 
-	var imageURL string
-	var po *processingOptions
-	var err error
-
-	if conf.OnlyPresets {
-		imageURL, po, err = parsePathPresets(parts, headers)
-	} else if _, ok := resizeTypes[parts[1]]; ok {
-		imageURL, po, err = parsePathBasic(parts, headers)
-	} else {
-		imageURL, po, err = parsePathAdvanced(parts, headers)
-	}
-
+	po, err = defaultProcessingOptions(headers)
 	if err != nil {
 		return ctx, newError(404, err.Error(), msgInvalidURL)
 	}
 
-	ctx = context.WithValue(ctx, imageURLCtxKey, imageURL)
+	query, err := url.ParseQuery(r.URL.RawQuery)
+	if err != nil {
+		return ctx, newError(403, err.Error(), msgInvalidURL)
+	}
+	for option, optionParams := range query {
+		var params []string
+		for _, paramElement := range optionParams {
+			params = append(params, strings.Split(paramElement, ":")...)
+		}
+		if err := applyProcessingOption(po, option, params); err != nil {
+			return ctx, newError(404, err.Error(), msgInvalidURL)
+		}
+	}
+	ctx = context.WithValue(ctx, imageURLCtxKey, path)
 	ctx = context.WithValue(ctx, processingOptionsCtxKey, po)
 
 	return ctx, nil
